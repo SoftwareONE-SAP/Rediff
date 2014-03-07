@@ -14,7 +14,7 @@ var stdio = require('stdio');
 /**
  * Our controller for diffing redis
  */
-var Rediffs = function(){
+var Rediff = function(){
 	var parent = this;
 
 	/**
@@ -40,9 +40,9 @@ var Rediffs = function(){
 
 	/**
 	 * Load our utility class
-	 * @type {RediffsUtils}
+	 * @type {RediffUtils}
 	 */
-	this.utils = new RediffsUtils();
+	this.utils = new RediffUtils();
 
 	/**
 	 * Init our connection details
@@ -72,7 +72,7 @@ var Rediffs = function(){
  * Load variables and configure connection details
  * @return {void}
  */
-Rediffs.prototype.init = function(){
+Rediff.prototype.init = function(){
 	/**
 	 * Get cli parameters
 	 * @type {Object}
@@ -106,7 +106,7 @@ Rediffs.prototype.init = function(){
  * Compute all keys which exist on both sides but are different
  * @return {void}
  */
-Rediffs.prototype.outputDifferentKeys = function(){
+Rediff.prototype.outputDifferentKeys = function(){
 	var parent = this;
 
 	console.log(clc.white("Sorting shared keys"));
@@ -140,7 +140,7 @@ Rediffs.prototype.outputDifferentKeys = function(){
  * Figure out and output the unique keys
  * @return {void}
  */
-Rediffs.prototype.outputUniqueKeys = function(){
+Rediff.prototype.outputUniqueKeys = function(){
 	var parent = this;
 
 	console.log(clc.white("Sorting unique keys"));
@@ -167,7 +167,7 @@ Rediffs.prototype.outputUniqueKeys = function(){
  * Connect to the redis instances
  * @return {void} calls callback when done
  */
-Rediffs.prototype.connectToClients = function(callback){
+Rediff.prototype.connectToClients = function(callback){
 	console.log(clc.white("Connecting"));
 
 	/**
@@ -234,7 +234,7 @@ Rediffs.prototype.connectToClients = function(callback){
     });
 }
 
-Rediffs.prototype.complete = function(){
+Rediff.prototype.complete = function(){
 	this.completed++;
 	if(this.completed >= this.ks.length - 1){
 		console.log(clc.white("--------------------------------------------------"));
@@ -250,7 +250,7 @@ Rediffs.prototype.complete = function(){
 	}
 };
 
-Rediffs.prototype.getKeysForBothClients = function(callback){
+Rediff.prototype.getKeysForBothClients = function(callback){
 	var parent = this;
 
 	var adone = false;
@@ -313,11 +313,11 @@ Rediffs.prototype.getKeysForBothClients = function(callback){
 	});
 }
 
-var RediffsUtils = function(){
+var RediffUtils = function(){
 
 }
 
-RediffsUtils.prototype.valuesIdentical = function(adata, bdata){
+RediffUtils.prototype.valuesIdentical = function(adata, bdata){
 
 	if(typeof adata == "string" && typeof bdata == "string"){
 		if(adata == bdata){
@@ -373,7 +373,7 @@ RediffsUtils.prototype.valuesIdentical = function(adata, bdata){
 	return false;
 }
 
-RediffsUtils.prototype.getKeys = function(client, callback){
+RediffUtils.prototype.getKeys = function(client, callback){
 	client.keys("*", callback);
 }
 
@@ -384,7 +384,7 @@ RediffsUtils.prototype.getKeys = function(client, callback){
  * @return {Array}    and array of unique keys
  * @note http://stackoverflow.com/questions/1187518/javascript-array-difference
  */
-RediffsUtils.prototype.getDiffKeys = function(ka, kb){
+RediffUtils.prototype.getDiffKeys = function(ka, kb){
 	var tmp = [];
 	var diff=[];
 
@@ -422,7 +422,7 @@ RediffsUtils.prototype.getDiffKeys = function(ka, kb){
  * @param  {[type]} kb [description]
  * @return {[type]}    [description]
  */
-RediffsUtils.prototype.getSharedKeys = function(ka, kb, ku){
+RediffUtils.prototype.getSharedKeys = function(ka, kb, ku){
 
 	var ks = this.arrayUnique(ka.concat(kb));
 
@@ -443,7 +443,7 @@ RediffsUtils.prototype.getSharedKeys = function(ka, kb, ku){
  * @return {Array}       The array with no duplicates
  * @note http://stackoverflow.com/questions/1584370/how-to-merge-two-arrays-in-javascript-and-de-duplicate-items
  */
-RediffsUtils.prototype.arrayUnique = function(array) {
+RediffUtils.prototype.arrayUnique = function(array) {
     var a = array.concat();
     for(var i=0; i<a.length; ++i) {
         for(var j=i+1; j<a.length; ++j) {
@@ -455,7 +455,7 @@ RediffsUtils.prototype.arrayUnique = function(array) {
     return a;
 };
 
-RediffsUtils.prototype.getDataForKeyBoth = function(clienta, clientb, key, callback){
+RediffUtils.prototype.getDataForKeyBoth = function(clienta, clientb, key, callback){
 
 	var adone = false;
 	var bdone = false;
@@ -601,7 +601,7 @@ RediffsUtils.prototype.getDataForKeyBoth = function(clienta, clientb, key, callb
 
 }
 
-RediffsUtils.prototype.getDataTypeOfKey = function(clienta, clientb, key, callback){
+RediffUtils.prototype.getDataTypeOfKey = function(clienta, clientb, key, callback){
 	var parent = this;
 
 	var adone = false;
@@ -649,4 +649,4 @@ RediffsUtils.prototype.getDataTypeOfKey = function(clienta, clientb, key, callba
 	});
 }
 
-var rediffs = new Rediffs();
+var Rediff = new Rediff();
