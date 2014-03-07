@@ -5,33 +5,11 @@
  */
 
 /**
- * Connect to redis
+ * Load librarys
  */
 var redis = require("redis");
 var clc = require("cli-color");
 var stdio = require('stdio');
-
-var InstanceA = "";
-var InstanceB = "";
-var InstancePortA = 6379;
-var InstancePortB = 6379;
-
-var ops = stdio.getopt({
-    'clienta': {key: 'a', args: 1, description: 'The first host to connect to'},
-    'clientb': {key: 'b', args: 1, description: 'The second host to connect to'},
-    'delay': {key: 'd', args: 1, description: 'The time to space out requests by'}
-});
-
-InstanceA = ops['clienta'].split(":")[0];
-InstanceB = ops['clientb'].split(":")[0];
-
-if(ops['clienta'].split(":").length > 1){
-	InstancePortA = ops['clienta'].split(":")[1];
-}
-
-if(ops['clientb'].split(":").length > 1){
-	InstancePortB = ops['clientb'].split(":")[1];
-}
 
 /**
  * Our controller for diffing redis
@@ -47,7 +25,17 @@ var Rediffs = function(){
 	this.kb = [];
 	this.ku = [];
 	this.ks = [];
+
+	/**
+	 * Count of different keys
+	 * @type {Number}
+	 */
 	this.kd = 0;
+
+	/**
+	 * Count of different keys processed
+	 * @type {Number}
+	 */
 	this.completed = 0;
 
 	/**
@@ -55,6 +43,11 @@ var Rediffs = function(){
 	 * @type {RediffsUtils}
 	 */
 	this.utils = new RediffsUtils();
+
+	/**
+	 * Init our connection details
+	 */
+	this.init();
 
 	/**
 	 * Connect to our instances then carry on
@@ -67,14 +60,46 @@ var Rediffs = function(){
 		 */
 		parent.getKeysForBothClients.bind(parent)(function(){
 
-			console.log(clc.white("Sorting unique keys"));
-
 			parent.outputUniqueKeys.bind(parent)();
 
 			parent.outputDifferentKeys.bind(parent)();
 
 		});
 	});
+}
+
+/**
+ * Load variables and configure connection details
+ * @return {void}
+ */
+Rediffs.prototype.init = function(){
+	/**
+	 * Get cli parameters
+	 * @type {Object}
+	 */
+	this.ops = stdio.getopt({
+	    'clienta': {key: 'a', args: 1, description: 'The first host to connect to'},
+	    'clientb': {key: 'b', args: 1, description: 'The second host to connect to'},
+	    'delay': {key: 'd', args: 1, description: 'The time to space out requests by'}
+	});
+
+	/**
+	 * Get connection details from cli parameters
+	 * @type {String}
+	 */
+	this.InstanceA = this.ops['clienta'].split(":")[0];
+	this.InstanceB = this.ops['clientb'].split(":")[0];
+
+	/**
+	 * If there is a port specified, override the default
+	 */
+	if(this.ops['clienta'].split(":").length > 1){
+		this.InstancePortA = ops['clienta'].split(":")[1];
+	}
+
+	if(this.ops['clientb'].split(":").length > 1){
+		this.InstancePortB = ops['clientb'].split(":")[1];
+	}
 }
 
 /**
@@ -93,7 +118,7 @@ Rediffs.prototype.outputDifferentKeys = function(){
 
 	for (var i = parent.ks.length - 1; i >= 0; i--) {
 
-		var delay = parseInt(ops['delay']) * i;
+		var delay = parseInt(this.ops['delay']) * i;
 		
 		setTimeout(function(key){
 
@@ -117,6 +142,8 @@ Rediffs.prototype.outputDifferentKeys = function(){
  */
 Rediffs.prototype.outputUniqueKeys = function(){
 	var parent = this;
+
+	console.log(clc.white("Sorting unique keys"));
 
 	/**
 	 * Find unique keys
@@ -146,7 +173,7 @@ Rediffs.prototype.connectToClients = function(callback){
 	/**
 	 * If they have not supplied hosts lets quit
 	 */
-	if(InstanceA.length == 0 || InstanceB.length == 0){
+	if(this.InstanceA.length == 0 || this.InstanceB.length == 0){
 		console.log(clc.redBright("You did not specify valid hosts"));
 		process.exit();
 	}
@@ -174,8 +201,8 @@ Rediffs.prototype.connectToClients = function(callback){
 		}
 	}
 
-	this.clienta = redis.createClient(InstancePortA, InstanceA);
-	this.clientb = redis.createClient(InstancePortB, InstanceB);
+	this.clienta = redis.createClient(this.InstancePortA, this.InstanceA);
+	this.clientb = redis.createClient(this.InstancePortB, this.InstanceB);
 
 	this.clienta.on("error", function (err) {
         console.log("ClientA: " + err);
