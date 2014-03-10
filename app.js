@@ -18,31 +18,22 @@ var Rediff = function(){
 	var parent = this;
 
 	/**
-	 * The keys for client A and B and Unique and Shared
+	 * The keys for client A and B and Unique and Shared and Different
 	 * @type {Array}
 	 */
 	this.ka = [];
 	this.kb = [];
 	this.ku = [];
 	this.ks = [];
-
-	/**
-	 * Count of different keys
-	 * @type {Number}
-	 */
-	this.kd = 0;
-
-	/**
-	 * Count of different keys processed
-	 * @type {Number}
-	 */
-	this.completed = 0;
+	this.kd = [];
 
 	/**
 	 * Load our utility class
 	 * @type {RediffUtils}
 	 */
 	this.utils = new RediffUtils();
+
+	this.log = this.utils.log.bind(this);
 
 	/**
 	 * Init our connection details
@@ -60,9 +51,50 @@ var Rediff = function(){
 		 */
 		parent.getKeysForBothClients.bind(parent)(function(){
 
-			parent.outputUniqueKeys.bind(parent)();
+			/**
+			 * Find unique keys
+			 */
+			parent.log(clc.white("Sorting unique keys..."));
+			parent.ku = parent.utils.getDiffKeys(parent.ka, parent.kb);
 
-			parent.outputDifferentKeys.bind(parent)();
+			/**
+			 * If the user requested to see the unique keys, show them
+			 */
+			if(parent.ops['output-unique']){
+				parent.outputUniqueKeys.bind(parent)();
+			}
+
+			/**
+			 * Find shared keys
+			 */
+			parent.log(clc.white("Sorting shared keys..."));
+			parent.ks = parent.utils.getSharedKeys(parent.ka, parent.kb, parent.ku);
+
+			/**
+			 * If the user requested to see the shared keys, show them
+			 */
+			if(parent.ops['output-shared']){
+				parent.outputSharedKeys.bind(parent)();
+			}
+
+			/**
+			 * Compute which keys have different values on each side, then call callback
+			 */
+			parent.log(clc.white("Checking values for keys..."));
+			parent.computeDifferentKeys.bind(parent)(function(){
+
+				/**
+				 * If the user requested to see the different keys, show them
+				 */
+				if(parent.ops['output-different']){
+					parent.outputDifferentKeys.bind(parent)();
+				}
+
+				/**
+				 * We're done here
+				 */
+				parent.complete();
+			});
 
 		});
 	});
@@ -80,7 +112,11 @@ Rediff.prototype.init = function(){
 	this.ops = stdio.getopt({
 	    'clienta': {key: 'a', args: 1, description: 'The first host to connect to'},
 	    'clientb': {key: 'b', args: 1, description: 'The second host to connect to'},
-	    'delay': {key: 'd', args: 1, description: 'The time to space out requests by'}
+	    'interval': {key: 'i', args: 1, description: 'The time to space out requests by'},
+	    'output-unique': {key: 'u', args: 0, description: 'Should output unique'},
+	    'output-shared': {key: 's', args: 0, description: 'Should output shared keys'},
+	    'output-different': {key: 'd', args: 0, description: 'Should output different keys'},
+	    'quiet': {key: 'q', args: 0, description: 'Only output data'},
 	});
 
 	/**
@@ -103,35 +139,65 @@ Rediff.prototype.init = function(){
 }
 
 /**
- * Compute all keys which exist on both sides but are different
+ * Output all keys that have different data to the other side's set
  * @return {void}
  */
 Rediff.prototype.outputDifferentKeys = function(){
 	var parent = this;
 
-	console.log(clc.white("Sorting shared keys"));
+	for (var i = parent.kd.length - 1; i >= 0; i--) {
 
-	/**
-	 * Find shared keys
-	 */
-	parent.ks = parent.utils.getSharedKeys(parent.ka, parent.kb, parent.ku);
+		parent.log(clc.yellow("[DIFFERENT]") + " -> " + clc.cyan(parent.kd[i]), true);
+
+	};
+}
+
+Rediff.prototype.computeDifferentKeys = function(callback){
+	var parent = this;
+
+	var done = 0;
+
+	function complete(){
+		done++;
+		if(done >= parent.ks.length){
+			callback();
+			return;
+		}else{
+			var mes = clc.green(done) + clc.blueBright(" / ") + clc.green((this.ks.length - 1) + " keys");
+			parent.log(mes);
+			process.stdout.write(clc.up(1));
+		}
+	}
 
 	for (var i = parent.ks.length - 1; i >= 0; i--) {
 
-		var delay = parseInt(this.ops['delay']) * i;
+		var delay = parseInt(this.ops['interval']) * i;
 		
 		setTimeout(function(key){
 
 			parent.utils.getDataForKeyBoth(parent.clienta, parent.clientb, key, function(adata, bdata){
-				if(!parent.utils.valuesIdentical(adata, bdata)){
-					parent.kd++;
-					console.log(clc.yellow("[DIFFERENT]") + " -> " + clc.cyan(key));
+				if(!parent.utils.valuesIdentical.bind(parent)(adata, bdata, key)){
+					parent.kd.push(key);
 				}
 
-				parent.complete.bind(parent)();
+				complete.bind(parent)();
 			});
 
 		}, delay, parent.ks[i]);
+
+	};
+}
+
+/**
+ * Output all keys that are on both sides
+ * @return {void}
+ */
+Rediff.prototype.outputSharedKeys = function(){
+	var parent = this;
+
+	for (var i = parent.ks.length - 1; i >= 0; i--) {
+
+		parent.log(clc.blueBright("[SHARED]") + " -> " + clc.cyan(parent.ks[i]), true);
 
 	};
 }
@@ -143,13 +209,6 @@ Rediff.prototype.outputDifferentKeys = function(){
 Rediff.prototype.outputUniqueKeys = function(){
 	var parent = this;
 
-	console.log(clc.white("Sorting unique keys"));
-
-	/**
-	 * Find unique keys
-	 */
-	parent.ku = parent.utils.getDiffKeys(parent.ka, parent.kb);
-
 	for (var i = parent.ku.length - 1; i >= 0; i--) {
 		var location = "";
 
@@ -159,7 +218,7 @@ Rediff.prototype.outputUniqueKeys = function(){
 			location = "ClientB";
 		}
 
-		console.log(clc.red("[UNIQUE]") + " -> " + location + " -> " + clc.cyan(parent.ku[i]));
+		parent.log(clc.red("[UNIQUE]") + " -> " + location + " -> " + clc.cyan(parent.ku[i]), true);
 	}
 }
 
@@ -168,13 +227,15 @@ Rediff.prototype.outputUniqueKeys = function(){
  * @return {void} calls callback when done
  */
 Rediff.prototype.connectToClients = function(callback){
-	console.log(clc.white("Connecting"));
+	var parent = this;
+
+	parent.log(clc.white("Connecting"));
 
 	/**
 	 * If they have not supplied hosts lets quit
 	 */
 	if(this.InstanceA.length == 0 || this.InstanceB.length == 0){
-		console.log(clc.redBright("You did not specify valid hosts"));
+		parent.log(clc.redBright("You did not specify valid hosts"));
 		process.exit();
 	}
 
@@ -205,49 +266,47 @@ Rediff.prototype.connectToClients = function(callback){
 	this.clientb = redis.createClient(this.InstancePortB, this.InstanceB);
 
 	this.clienta.on("error", function (err) {
-        console.log("ClientA: " + err);
+        parent.log("ClientA: " + err);
+        proccess.exit();
     });
 
     this.clientb.on("error", function (err) {
-        console.log("ClientB: " + err);
+        parent.log("ClientB: " + err);
+        proccess.exit();
     });
 
     this.clienta.on("ready", function (err) {
     	if(err){
-    		console.log("ClientA: " + err);
+    		parent.log("ClientA: " + err);
     		return;
     	}
-        console.log(clc.white("ClientA Connected"));
+        parent.log(clc.white("ClientA Connected"));
 
         imdone("a");
     });
 
     this.clientb.on("ready", function (err) {
         if(err){
-    		console.log("ClientB: " + err);
+    		parent.log("ClientB: " + err);
     		return;
     	}
 
-        console.log(clc.white("ClientB Connected"));
+        parent.log(clc.white("ClientB Connected"));
 
         imdone("b");
     });
 }
 
 Rediff.prototype.complete = function(){
-	this.completed++;
-	if(this.completed >= this.ks.length - 1){
-		console.log(clc.white("--------------------------------------------------"));
-		console.log(clc.green("[DONE]"));
-		console.log(clc.greenBright("Total shared keys checked: " + this.ks.length));
-		console.log(clc.greenBright("Total different keys: " + this.kd));
-		console.log(clc.greenBright("Total unique keys: " + this.ku.length));
-		process.exit();
-	}else{
-		var mes = clc.green(this.completed) + clc.blueBright(" / ") + clc.green((this.ks.length - 1) + " keys");
-		console.log(mes);
-		process.stdout.write(clc.up(1));
-	}
+	var parent = this;
+
+	parent.log(clc.white("--------------------------------------------------"));
+	parent.log(clc.green("[DONE]"));
+	parent.log(clc.greenBright("Total keys found: " + (this.ks.length + this.ku.length)));
+	parent.log(clc.greenBright("Total shared keys found: " + this.ks.length));
+	parent.log(clc.greenBright("Total different keys: " + this.kd.length));
+	parent.log(clc.greenBright("Total unique keys: " + this.ku.length));
+	process.exit();
 };
 
 Rediff.prototype.getKeysForBothClients = function(callback){
@@ -256,7 +315,7 @@ Rediff.prototype.getKeysForBothClients = function(callback){
 	var adone = false;
 	var bdone = false;
 
-	console.log(clc.white("Collecting keys from both instances"));
+	parent.log(clc.white("Collecting keys from both instances"));
 
 	/**
 	 * Return when both async tasks are done
@@ -283,10 +342,10 @@ Rediff.prototype.getKeysForBothClients = function(callback){
 	 */
 	parent.utils.getKeys(parent.clienta, function(err, data){
 		if(err){
-			console.log("Error getting keys for clienta");
+			parent.log("Error getting keys for clienta");
 		}
 
-		console.log(clc.white("Collected keys from clienta"));
+		parent.log(clc.white("Collected keys from clienta"));
 		parent.ka = data;
 
 		/**
@@ -300,10 +359,10 @@ Rediff.prototype.getKeysForBothClients = function(callback){
 	 */
 	parent.utils.getKeys(parent.clientb, function(err, data){
 		if(err){
-			console.log("Error getting keys for clientb");
+			parent.log("Error getting keys for clientb");
 		}
 
-		console.log(clc.white("Collected keys from clientb"));
+		parent.log(clc.white("Collected keys from clientb"));
 		parent.kb = data;
 
 		/**
@@ -317,7 +376,8 @@ var RediffUtils = function(){
 
 }
 
-RediffUtils.prototype.valuesIdentical = function(adata, bdata){
+RediffUtils.prototype.valuesIdentical = function(adata, bdata, key){
+	var parent = this;
 
 	if(typeof adata == "string" && typeof bdata == "string"){
 		if(adata == bdata){
@@ -349,7 +409,7 @@ RediffUtils.prototype.valuesIdentical = function(adata, bdata){
 		var keysa = Object.keys(adata).sort().slice(0);
 		var keysb = Object.keys(bdata).sort().slice(0);
 
-		var diffKeys = this.getDiffKeys(keysa.slice(0), keysb.slice(0));
+		var diffKeys = this.utils.getDiffKeys(keysa.slice(0), keysb.slice(0));
 
 		if(diffKeys.length > 0){
 			return false;
@@ -368,7 +428,7 @@ RediffUtils.prototype.valuesIdentical = function(adata, bdata){
 
 	}
 
-	console.log(clc.red("[ISSUE]") + " Not caught type -> a: '" + typeof adata + "' b: '" + typeof adata + "' Data: " + JSON.stringify(adata));
+	parent.log(clc.red("[ISSUE]") + " Not caught Key: '" + key + "', Type -> (a: '" + typeof adata + "' b: '" + typeof adata + "') Data: " + JSON.stringify(adata), true);
 
 	return false;
 }
@@ -418,9 +478,10 @@ RediffUtils.prototype.getDiffKeys = function(ka, kb){
 
 /**
  * Get all keys which are in both ka and kb
- * @param  {[type]} ka [description]
- * @param  {[type]} kb [description]
- * @return {[type]}    [description]
+ * @param  {Array} ka Keys from client A
+ * @param  {Array} kb Keys from client B
+ * @param  {Array} ku Known Unique Keys
+ * @return {Array}    The keys that both clients have
  */
 RediffUtils.prototype.getSharedKeys = function(ka, kb, ku){
 
@@ -491,7 +552,7 @@ RediffUtils.prototype.getDataForKeyBoth = function(clienta, clientb, key, callba
 
 				clienta.get(key, function(err, data){
 					if(err){
-						console.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
+						parent.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
 					}
 					
 					adata = data;
@@ -501,7 +562,7 @@ RediffUtils.prototype.getDataForKeyBoth = function(clienta, clientb, key, callba
 
 				clientb.get(key, function(err, data){
 					if(err){
-						console.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
+						parent.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
 					}
 					
 					bdata = data;
@@ -515,7 +576,7 @@ RediffUtils.prototype.getDataForKeyBoth = function(clienta, clientb, key, callba
 
 				clienta.lrange(key, 0, 999999, function(err, data){
 					if(err){
-						console.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
+						parent.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
 					}
 					
 					adata = data;
@@ -525,7 +586,7 @@ RediffUtils.prototype.getDataForKeyBoth = function(clienta, clientb, key, callba
 
 				clientb.lrange(key, 0, 999999, function(err, data){
 					if(err){
-						console.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
+						parent.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
 					}
 					
 					bdata = data;
@@ -539,7 +600,7 @@ RediffUtils.prototype.getDataForKeyBoth = function(clienta, clientb, key, callba
 
 				clienta.smembers(key, function(err, data){
 					if(err){
-						console.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
+						parent.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
 					}
 
 					adata = data;
@@ -549,7 +610,7 @@ RediffUtils.prototype.getDataForKeyBoth = function(clienta, clientb, key, callba
 
 				clientb.smembers(key, function(err, data){
 					if(err){
-						console.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
+						parent.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
 					}
 					
 					bdata = data;
@@ -563,7 +624,7 @@ RediffUtils.prototype.getDataForKeyBoth = function(clienta, clientb, key, callba
 
 				clienta.hgetall(key, function(err, data){
 					if(err){
-						console.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
+						parent.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
 					}
 					
 					adata = data;
@@ -573,7 +634,7 @@ RediffUtils.prototype.getDataForKeyBoth = function(clienta, clientb, key, callba
 
 				clientb.hgetall(key, function(err, data){
 					if(err){
-						console.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
+						parent.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
 					}
 					
 					bdata = data;
@@ -599,6 +660,11 @@ RediffUtils.prototype.getDataForKeyBoth = function(clienta, clientb, key, callba
 		}
 	});
 
+}
+
+RediffUtils.prototype.log = function(message, isData){
+	if(!this.ops.quiet || isData)
+	console.log(message);
 }
 
 RediffUtils.prototype.getDataTypeOfKey = function(clienta, clientb, key, callback){
@@ -649,4 +715,5 @@ RediffUtils.prototype.getDataTypeOfKey = function(clienta, clientb, key, callbac
 	});
 }
 
-var Rediff = new Rediff();
+var rediff = new Rediff();
+
