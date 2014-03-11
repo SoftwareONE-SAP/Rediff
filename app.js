@@ -392,6 +392,11 @@ Rediff.prototype.outputDifferentKeys = function(){
 Rediff.prototype.computeDifferentKeys = function(callback){
 	var parent = this;
 
+	if(parent.ks.length == 0){
+		callback();
+		return;
+	}
+
 	var done = 0;
 
 	var imdone = function(){
