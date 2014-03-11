@@ -135,6 +135,20 @@ Rediff.prototype.writeAToClientB = function(callback){
 		}
 	}
 
+	/**
+	 * If we have no unique or different then lets get out of here
+	 */
+	if(parent.ku.length == 0 && parent.kd.length == 0){
+		complete();
+	}
+
+	/**
+	 * Loop through all unique keys and remove them from B and copy keys from A to B
+	 * @param  {String} key   The Redis key
+	 * @param  {Integer} index The index of the key in our keys array
+	 * @param  {Array} array The array being traversed
+	 * @return {void}
+	 */
 	parent.ku.forEach(function(key, index, array){
 
 		/**
