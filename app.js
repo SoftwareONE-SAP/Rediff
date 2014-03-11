@@ -166,163 +166,12 @@ Rediff.prototype.writeAToClientB = function(callback){
 
 		}else{
 
-			/**
-			 * Write unique keys from A -> B
-			 */
-			parent.utils.getDataTypeOfUniqueKey(parent.clienta, key, function(type){
-				switch(type){
-
-					case "string":
-
-						/**
-						 * Use the key to get data from A
-						 * @param  {String} err  Status of call
-						 * @param  {String} data The data of the key in A
-						 * @return {void}
-						 */
-						parent.clienta.get(key, function(err, data){
-
-							/**
-							 * Write the data for the key from A into B.
-							 * @param  {String} err  Status of call
-							 * @param  {String} data The updated record
-							 * @return {void}
-							 */
-							parent.clientb.set(key, data, function(err, data){
-								uniqueDone++;
-								complete();
-							});
-						});
-						
-						break;
-
-					case "list":
-
-						parent.clienta.lrange(key, 0, -1, function(err, data){
-
-							/**
-							 * How many requests have completed
-							 * @type {Number}
-							 */
-							var count = 0;
-
-							/**
-							 * One all requests are done, call complete
-							 * @return {void} Calls complete once this key is done with
-							 */
-							var imdone = function(){
-								count++;
-								if(count >= data.length){
-									uniqueDone++;
-									complete();
-								}
-							}
-
-							/**
-							 * Push each element into list
-							 * @TODO there has to be a better way......
-							 */
-							for(var i = 0 ; i < data.length ; i ++){
-								parent.clientb.rpush(key, data[i], function(){
-									imdone();
-								});
-							}
-						});
-						
-
-						break;
-
-					case "set":
-
-						parent.clienta.smembers(key, function(err, data){
-
-							/**
-							 * How many requests have completed
-							 * @type {Number}
-							 */
-							var count = 0;
-
-							/**
-							 * One all requests are done, call complete
-							 * @return {void} Calls complete once this key is done with
-							 */
-							var imdone = function(){
-								count++;
-								if(count >= data.length){
-									uniqueDone++;
-									complete();
-								}
-							}
-
-							for(var i = 0 ; i < data.length ; i ++){
-								parent.clientb.sadd(key, data[i], function(err, data){
-									imdone();
-								});
-							}
-
-						});
-
-						break;
-
-					case "hash":
-
-						/**
-						 * Get all data for a hash from A
-						 * @param  {String} err  Status of call
-						 * @param  {Object} data the hash from A
-						 * @return {void}
-						 */
-						parent.clienta.hgetall(key, function(err, data){
-							/**
-							 * The keys for our data
-							 * @type {Array}
-							 */
-							var keys = Object.keys(data);
-
-							/**
-							 * How many requests have completed
-							 * @type {Number}
-							 */
-							var count = 0;
-
-							/**
-							 * One all requests are done, call complete
-							 * @return {void} Calls complete once this key is done with
-							 */
-							var imdone = function(){
-								count++;
-								if(count >= keys.length){
-									uniqueDone++;
-									complete();
-								}
-							}
-
-							for(var i = 0 ; i < keys.length; i++){
-								parent.clientb.hset(key, keys[i], data[keys[i]], function(err, data){
-									imdone();
-								});
-							}
-
-						});
-
-						break;
-
-					default:
-
-						parent.log(clc.red("[ISSUE]") + " Type of key could not be defined");
-
-						uniqueDone++;
-						complete();
-
-						break;
-				}
+			parent.utils.copyClientaKeyToClientB.bind(parent)(key, function(){
+				uniqueDone++;
+				complete();
 			});
-
 		}
 
-		
-
-		
 	});
 
 	parent.kd.forEach(function(key, index, array){
@@ -330,9 +179,13 @@ Rediff.prototype.writeAToClientB = function(callback){
 		/**
 		 * OVERWRITE different keys
 		 */
+		parent.clientb.del(key, function(err, data){
+			parent.utils.copyClientaKeyToClientB.bind(parent)(key, function(){
+				differentDone++;
+				complete();
+			});
+		});
 
-		differentDone++;
-		complete();
 	});
 }
 
@@ -616,6 +469,162 @@ Rediff.prototype.getKeysForBothClients = function(callback){
 
 var RediffUtils = function(){
 
+}
+
+RediffUtils.prototype.copyClientaKeyToClientB = function(key, callback){
+	var parent = this;
+
+	/**
+	 * Write unique keys from A -> B
+	 */
+	parent.utils.getDataTypeOfUniqueKey(parent.clienta, key, function(type){
+		switch(type){
+
+			case "string":
+
+				/**
+				 * Use the key to get data from A
+				 * @param  {String} err  Status of call
+				 * @param  {String} data The data of the key in A
+				 * @return {void}
+				 */
+				parent.clienta.get(key, function(err, data){
+
+					/**
+					 * Write the data for the key from A into B.
+					 * @param  {String} err  Status of call
+					 * @param  {String} data The updated record
+					 * @return {void}
+					 */
+					parent.clientb.set(key, data, function(err, data){
+						callback();
+						return;
+					});
+				});
+				
+				break;
+
+			case "list":
+
+				parent.clienta.lrange(key, 0, -1, function(err, data){
+
+					/**
+					 * How many requests have completed
+					 * @type {Number}
+					 */
+					var count = 0;
+
+					/**
+					 * One all requests are done, call complete
+					 * @return {void} Calls complete once this key is done with
+					 */
+					var imdone = function(){
+						count++;
+						if(count >= data.length){
+							callback();
+							return;
+						}
+					}
+
+					/**
+					 * Push each element into list
+					 * @TODO there has to be a better way......
+					 */
+					for(var i = 0 ; i < data.length ; i ++){
+						parent.clientb.rpush(key, data[i], function(){
+							imdone();
+						});
+					}
+				});
+				
+
+				break;
+
+			case "set":
+
+				parent.clienta.smembers(key, function(err, data){
+
+					/**
+					 * How many requests have completed
+					 * @type {Number}
+					 */
+					var count = 0;
+
+					/**
+					 * One all requests are done, call complete
+					 * @return {void} Calls complete once this key is done with
+					 */
+					var imdone = function(){
+						count++;
+						if(count >= data.length){
+							callback();
+							return;
+						}
+					}
+
+					for(var i = 0 ; i < data.length ; i ++){
+						parent.clientb.sadd(key, data[i], function(err, data){
+							imdone();
+						});
+					}
+
+				});
+
+				break;
+
+			case "hash":
+
+				/**
+				 * Get all data for a hash from A
+				 * @param  {String} err  Status of call
+				 * @param  {Object} data the hash from A
+				 * @return {void}
+				 */
+				parent.clienta.hgetall(key, function(err, data){
+					/**
+					 * The keys for our data
+					 * @type {Array}
+					 */
+					var keys = Object.keys(data);
+
+					/**
+					 * How many requests have completed
+					 * @type {Number}
+					 */
+					var count = 0;
+
+					/**
+					 * One all requests are done, call complete
+					 * @return {void} Calls complete once this key is done with
+					 */
+					var imdone = function(){
+						count++;
+						if(count >= keys.length){
+							callback();
+							return;
+						}
+					}
+
+					for(var i = 0 ; i < keys.length; i++){
+						parent.clientb.hset(key, keys[i], data[keys[i]], function(err, data){
+							imdone();
+						});
+					}
+
+				});
+
+				break;
+
+			default:
+
+				parent.log(clc.red("[ISSUE]") + " Type of key could not be defined");
+
+				callback();
+				return;
+
+				break;
+		}
+	});
 }
 
 RediffUtils.prototype.valuesIdentical = function(adata, bdata, key){
