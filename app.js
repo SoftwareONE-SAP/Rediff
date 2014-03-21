@@ -40,11 +40,14 @@ var Rediff = function(){
 	 */
 	this.init();
 
+	this.conn = new RediffConnectionManager(this.InstanceA, this.InstancePortA, this.InstanceB, this.InstancePortB, this.poolCount);
+
 	/**
 	 * Connect to our instances then carry on
 	 * @return {void}
 	 */
-	this.connectToClients(function(){
+	parent.log(clc.white("Connecting..."));
+	this.conn.connect.bind(this.conn)(function(){
 
 		/**
 		 * Get all keys from both instances
@@ -115,6 +118,53 @@ var Rediff = function(){
 	});
 }
 
+/**
+ * Load variables and configure connection details
+ * @return {void}
+ */
+Rediff.prototype.init = function(){
+	/**
+	 * Get cli parameters
+	 * @type {Object}
+	 */
+	this.ops = stdio.getopt({
+	    'clienta': {key: 'a', args: 1, description: 'The first host to connect to'},
+	    'clientb': {key: 'b', args: 1, description: 'The second host to connect to'},
+	    'pool': {key: 'p', args: 1, description: 'The amount of connections to open'},
+	    'interval': {key: 'i', args: 1, description: 'The time to space out requests by'},
+	    'output-unique': {key: 'u', args: 0, description: 'Should output unique'},
+	    'output-shared': {key: 's', args: 0, description: 'Should output shared keys'},
+	    'output-different': {key: 'd', args: 0, description: 'Should output different keys'},
+	    'quiet': {key: 'q', args: 0, description: 'Only output data'},
+	    'write': {key: 'w', args: 0, description: 'OVERWRITE clientb with clienta'},
+	});
+
+	/**
+	 * Get connection details from cli parameters
+	 * @type {String}
+	 */
+	this.InstanceA = this.ops['clienta'].split(":")[0];
+	this.InstanceB = this.ops['clientb'].split(":")[0];
+
+	this.poolCount = this.ops.pool;
+
+	/**
+	 * If there is a port specified, override the default
+	 */
+	if(this.ops['clienta'].split(":").length > 1){
+		this.InstancePortA = ops['clienta'].split(":")[1];
+	}
+
+	if(this.ops['clientb'].split(":").length > 1){
+		this.InstancePortB = ops['clientb'].split(":")[1];
+	}
+}
+
+/**
+ * Write all data from A to B and remove unique data from B
+ * @param  {Function} callback Called when done
+ * @return {void}
+ */
 Rediff.prototype.writeAToClientB = function(callback){
 	var parent = this;
 
@@ -159,7 +209,7 @@ Rediff.prototype.writeAToClientB = function(callback){
 			/**
 			 * Remove unique keys from B
 			 */
-			parent.clientb.del(key, function(err, data){
+			parent.conn.getClient("b").del(key, function(err, data){
 				uniqueDone++;
 				complete();
 			});
@@ -179,7 +229,7 @@ Rediff.prototype.writeAToClientB = function(callback){
 		/**
 		 * OVERWRITE different keys
 		 */
-		parent.clientb.del(key, function(err, data){
+		parent.conn.getClient("b").del(key, function(err, data){
 			parent.utils.copyClientaKeyToClientB.bind(parent)(key, function(){
 				differentDone++;
 				complete();
@@ -187,45 +237,6 @@ Rediff.prototype.writeAToClientB = function(callback){
 		});
 
 	});
-}
-
-/**
- * Load variables and configure connection details
- * @return {void}
- */
-Rediff.prototype.init = function(){
-	/**
-	 * Get cli parameters
-	 * @type {Object}
-	 */
-	this.ops = stdio.getopt({
-	    'clienta': {key: 'a', args: 1, description: 'The first host to connect to'},
-	    'clientb': {key: 'b', args: 1, description: 'The second host to connect to'},
-	    'interval': {key: 'i', args: 1, description: 'The time to space out requests by'},
-	    'output-unique': {key: 'u', args: 0, description: 'Should output unique'},
-	    'output-shared': {key: 's', args: 0, description: 'Should output shared keys'},
-	    'output-different': {key: 'd', args: 0, description: 'Should output different keys'},
-	    'quiet': {key: 'q', args: 0, description: 'Only output data'},
-	    'write': {key: 'w', args: 0, description: 'OVERWRITE clientb with clienta'},
-	});
-
-	/**
-	 * Get connection details from cli parameters
-	 * @type {String}
-	 */
-	this.InstanceA = this.ops['clienta'].split(":")[0];
-	this.InstanceB = this.ops['clientb'].split(":")[0];
-
-	/**
-	 * If there is a port specified, override the default
-	 */
-	if(this.ops['clienta'].split(":").length > 1){
-		this.InstancePortA = ops['clienta'].split(":")[1];
-	}
-
-	if(this.ops['clientb'].split(":").length > 1){
-		this.InstancePortB = ops['clientb'].split(":")[1];
-	}
 }
 
 /**
@@ -254,7 +265,7 @@ Rediff.prototype.computeDifferentKeys = function(callback){
 
 	var imdone = function(){
 		done++;
-		if(done >= parent.ks.length){
+		if(done >= parent.ks.length - 1){
 			callback();
 			return;
 		}else{
@@ -270,7 +281,7 @@ Rediff.prototype.computeDifferentKeys = function(callback){
 		
 		setTimeout(function(key){
 
-			parent.utils.getDataForKeyBoth(parent.clienta, parent.clientb, key, function(adata, bdata){
+			parent.utils.getDataForKeyBoth(parent.conn, key, function(adata, bdata){
 				if(!parent.utils.valuesIdentical.bind(parent)(adata, bdata, key)){
 					parent.kd.push(key);
 				}
@@ -317,81 +328,6 @@ Rediff.prototype.outputUniqueKeys = function(){
 	}
 }
 
-/**
- * Connect to the redis instances
- * @return {void} calls callback when done
- */
-Rediff.prototype.connectToClients = function(callback){
-	var parent = this;
-
-	parent.log(clc.white("Connecting"));
-
-	/**
-	 * If they have not supplied hosts lets quit
-	 */
-	if(this.InstanceA.length == 0 || this.InstanceB.length == 0){
-		parent.log(clc.redBright("You did not specify valid hosts"));
-		process.exit();
-	}
-
-	var adone = false;
-	var bdone = false;
-
-	/**
-	 * Return when both async tasks are done
-	 * @param  {String} namespace the namespace of the async task
-	 * @return {void}           Calls a callback and then returns void
-	 */
-	var imdone = function(namespace){
-		if(namespace == "a"){
-			adone = true;
-		}
-
-		if(namespace == "b"){
-			bdone = true;
-		}
-
-		if(adone && bdone){
-			callback();
-			return;
-		}
-	}
-
-	this.clienta = redis.createClient(this.InstancePortA, this.InstanceA);
-	this.clientb = redis.createClient(this.InstancePortB, this.InstanceB);
-
-	this.clienta.on("error", function (err) {
-        parent.log("ClientA: " + err);
-        process.exit();
-    });
-
-    this.clientb.on("error", function (err) {
-        parent.log("ClientB: " + err);
-        process.exit();
-    });
-
-    this.clienta.on("ready", function (err) {
-    	if(err){
-    		parent.log("ClientA: " + err);
-    		return;
-    	}
-        parent.log(clc.white("ClientA Connected"));
-
-        imdone("a");
-    });
-
-    this.clientb.on("ready", function (err) {
-        if(err){
-    		parent.log("ClientB: " + err);
-    		return;
-    	}
-
-        parent.log(clc.white("ClientB Connected"));
-
-        imdone("b");
-    });
-}
-
 Rediff.prototype.complete = function(){
 	var parent = this;
 
@@ -435,7 +371,7 @@ Rediff.prototype.getKeysForBothClients = function(callback){
 	/**
 	 * Get keys for clienta
 	 */
-	parent.utils.getKeys(parent.clienta, function(err, data){
+	parent.utils.getKeys(parent.conn.getClient("a"), function(err, data){
 		if(err){
 			parent.log("Error getting keys for clienta");
 		}
@@ -452,7 +388,7 @@ Rediff.prototype.getKeysForBothClients = function(callback){
 	/**
 	 * Get keys for clientb
 	 */
-	parent.utils.getKeys(parent.clientb, function(err, data){
+	parent.utils.getKeys(parent.conn.getClient("b"), function(err, data){
 		if(err){
 			parent.log("Error getting keys for clientb");
 		}
@@ -477,7 +413,7 @@ RediffUtils.prototype.copyClientaKeyToClientB = function(key, callback){
 	/**
 	 * Write unique keys from A -> B
 	 */
-	parent.utils.getDataTypeOfUniqueKey(parent.clienta, key, function(type){
+	parent.utils.getDataTypeOfUniqueKey(parent.conn.getClient("a"), key, function(type){
 		switch(type){
 
 			case "string":
@@ -488,7 +424,7 @@ RediffUtils.prototype.copyClientaKeyToClientB = function(key, callback){
 				 * @param  {String} data The data of the key in A
 				 * @return {void}
 				 */
-				parent.clienta.get(key, function(err, data){
+				parent.conn.getClient("a").get(key, function(err, data){
 
 					/**
 					 * Write the data for the key from A into B.
@@ -496,7 +432,7 @@ RediffUtils.prototype.copyClientaKeyToClientB = function(key, callback){
 					 * @param  {String} data The updated record
 					 * @return {void}
 					 */
-					parent.clientb.set(key, data, function(err, data){
+					parent.conn.getClient("b").set(key, data, function(err, data){
 						callback();
 						return;
 					});
@@ -506,7 +442,7 @@ RediffUtils.prototype.copyClientaKeyToClientB = function(key, callback){
 
 			case "list":
 
-				parent.clienta.lrange(key, 0, -1, function(err, data){
+				parent.conn.getClient("a").lrange(key, 0, -1, function(err, data){
 
 					/**
 					 * How many requests have completed
@@ -531,7 +467,7 @@ RediffUtils.prototype.copyClientaKeyToClientB = function(key, callback){
 					 * @TODO there has to be a better way......
 					 */
 					for(var i = 0 ; i < data.length ; i ++){
-						parent.clientb.rpush(key, data[i], function(){
+						parent.conn.getClient("b").rpush(key, data[i], function(){
 							imdone();
 						});
 					}
@@ -542,7 +478,7 @@ RediffUtils.prototype.copyClientaKeyToClientB = function(key, callback){
 
 			case "set":
 
-				parent.clienta.smembers(key, function(err, data){
+				parent.conn.getClient("a").smembers(key, function(err, data){
 
 					/**
 					 * How many requests have completed
@@ -563,7 +499,7 @@ RediffUtils.prototype.copyClientaKeyToClientB = function(key, callback){
 					}
 
 					for(var i = 0 ; i < data.length ; i ++){
-						parent.clientb.sadd(key, data[i], function(err, data){
+						parent.conn.getClient("b").sadd(key, data[i], function(err, data){
 							imdone();
 						});
 					}
@@ -580,7 +516,7 @@ RediffUtils.prototype.copyClientaKeyToClientB = function(key, callback){
 				 * @param  {Object} data the hash from A
 				 * @return {void}
 				 */
-				parent.clienta.hgetall(key, function(err, data){
+				parent.conn.getClient("a").hgetall(key, function(err, data){
 					/**
 					 * The keys for our data
 					 * @type {Array}
@@ -606,7 +542,7 @@ RediffUtils.prototype.copyClientaKeyToClientB = function(key, callback){
 					}
 
 					for(var i = 0 ; i < keys.length; i++){
-						parent.clientb.hset(key, keys[i], data[keys[i]], function(err, data){
+						parent.conn.getClient("b").hset(key, keys[i], data[keys[i]], function(err, data){
 							imdone();
 						});
 					}
@@ -767,7 +703,7 @@ RediffUtils.prototype.arrayUnique = function(array) {
     return a;
 };
 
-RediffUtils.prototype.getDataForKeyBoth = function(clienta, clientb, key, callback){
+RediffUtils.prototype.getDataForKeyBoth = function(conn, key, callback){
 
 	var adone = false;
 	var bdone = false;
@@ -795,13 +731,13 @@ RediffUtils.prototype.getDataForKeyBoth = function(clienta, clientb, key, callba
 		}
 	}
 
-	var method = this.getDataTypeOfKey(clienta, clientb, key, function(method){
+	var method = this.getDataTypeOfKey(conn, key, function(method){
 
 		switch(method){
 
 			case "string":
 
-				clienta.get(key, function(err, data){
+				conn.getClient("a").get(key, function(err, data){
 					if(err){
 						parent.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
 					}
@@ -811,7 +747,7 @@ RediffUtils.prototype.getDataForKeyBoth = function(clienta, clientb, key, callba
 					imdone("a");
 				});
 
-				clientb.get(key, function(err, data){
+				conn.getClient("b").get(key, function(err, data){
 					if(err){
 						parent.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
 					}
@@ -825,7 +761,7 @@ RediffUtils.prototype.getDataForKeyBoth = function(clienta, clientb, key, callba
 
 			case "list":
 
-				clienta.lrange(key, 0, 999999, function(err, data){
+				conn.getClient("a").lrange(key, 0, 999999, function(err, data){
 					if(err){
 						parent.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
 					}
@@ -835,7 +771,7 @@ RediffUtils.prototype.getDataForKeyBoth = function(clienta, clientb, key, callba
 					imdone("a");
 				});
 
-				clientb.lrange(key, 0, 999999, function(err, data){
+				conn.getClient("b").lrange(key, 0, 999999, function(err, data){
 					if(err){
 						parent.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
 					}
@@ -849,7 +785,7 @@ RediffUtils.prototype.getDataForKeyBoth = function(clienta, clientb, key, callba
 
 			case "set":
 
-				clienta.smembers(key, function(err, data){
+				conn.getClient("a").smembers(key, function(err, data){
 					if(err){
 						parent.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
 					}
@@ -859,7 +795,7 @@ RediffUtils.prototype.getDataForKeyBoth = function(clienta, clientb, key, callba
 					imdone("a");
 				});
 
-				clientb.smembers(key, function(err, data){
+				conn.getClient("b").smembers(key, function(err, data){
 					if(err){
 						parent.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
 					}
@@ -873,7 +809,7 @@ RediffUtils.prototype.getDataForKeyBoth = function(clienta, clientb, key, callba
 
 			case "hash":
 
-				clienta.hgetall(key, function(err, data){
+				conn.getClient("a").hgetall(key, function(err, data){
 					if(err){
 						parent.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
 					}
@@ -883,7 +819,7 @@ RediffUtils.prototype.getDataForKeyBoth = function(clienta, clientb, key, callba
 					imdone("a");
 				});
 
-				clientb.hgetall(key, function(err, data){
+				conn.getClient("b").hgetall(key, function(err, data){
 					if(err){
 						parent.log("[" + method + "] for: '" + key + "' Reported: '" + err + "'");
 					}
@@ -918,7 +854,7 @@ RediffUtils.prototype.log = function(message, isData){
 	console.log(message);
 }
 
-RediffUtils.prototype.getDataTypeOfKey = function(clienta, clientb, key, callback){
+RediffUtils.prototype.getDataTypeOfKey = function(conn, key, callback){
 	var parent = this;
 
 	var adone = false;
@@ -953,13 +889,13 @@ RediffUtils.prototype.getDataTypeOfKey = function(clienta, clientb, key, callbac
 		}
 	}
 
-	clienta.type(key, function(err, data){
+	conn.getClient("a").type(key, function(err, data){
 		adata = data;
 
 		imdone("a");
 	});
 
-	clienta.type(key, function(err, data){
+	conn.getClient("b").type(key, function(err, data){
 		bdata = data;
 
 		imdone("b");
@@ -973,7 +909,112 @@ RediffUtils.prototype.getDataTypeOfUniqueKey = function(client, key, callback){
 		callback(data);
 		return;
 	});
+}
 
+var RediffConnectionManager = function(hostA, portA, hostB, portB, poolCount){
+	/**
+	 * Our connection Details
+	 * @type {String}
+	 */
+	this.hostA = hostA;
+	this.portA = portA;
+	this.hostB = hostB;
+	this.portB = portB;
+
+	/**
+	 * How many connections to open
+	 * @type {Interger}
+	 */
+	this.poolCount = poolCount;
+
+	this.clients = {
+		a: [],
+		b: []
+	}
+}
+
+RediffConnectionManager.prototype.connect = function(callback){
+	var parent = this;
+
+	/**
+	 * How many have connected
+	 * @type {Number}
+	 */
+	var adone = 0;
+	var bdone = 0;
+
+	var imdone = function(namespace){
+		
+		if(namespace == "a"){
+			adone++;
+		}
+
+		if(namespace == "b"){
+			bdone++;
+		}
+		
+		if(adone >= parent.poolCount && bdone >= parent.poolCount){
+
+			/**
+			 * Clear up output
+			 */
+			console.log("                                                          ");
+			console.log("                                                          ");
+			process.stdout.write(clc.up(2));
+
+			/**
+			 * Return
+			 */
+			callback();
+			return;
+		}else{
+			/**
+			 * Output a progress message
+			 */
+			var mes = clc.green(adone) + clc.blueBright(" / ") + clc.green((parent.poolCount) + " clienta connected");
+			console.log(mes);
+			var mes = clc.green(bdone) + clc.blueBright(" / ") + clc.green((parent.poolCount) + " clientb connected");
+			console.log(mes);
+			process.stdout.write(clc.up(2));
+		}
+	}
+
+	for (var i = this.poolCount - 1; i >= 0; i--) {
+		this.clients.a[i] = redis.createClient(this.portA, this.hostA);
+		this.clients.b[i] = redis.createClient(this.portB, this.hostB);
+
+		this.clients.a[i].on("error", function (err) {
+	        console.log("ClientA: " + err);
+	        process.exit();
+	    });
+
+	    this.clients.b[i].on("error", function (err) {
+	        console.log("ClientB: " + err);
+	        process.exit();
+	    });
+
+	    this.clients.a[i].on("ready", function (err) {
+	    	if(err){
+	    		console.log("ClientA: " + err);
+	    		return;
+	    	}
+
+	        imdone("a");
+	    });
+
+	    this.clients.b[i].on("ready", function (err) {
+	        if(err){
+	    		console.log("ClientB: " + err);
+	    		return;
+	    	}
+
+	        imdone("b");
+	    });
+	};
+}
+
+RediffConnectionManager.prototype.getClient = function(namespace){
+	return this.clients[namespace][parseInt(Math.random() * this.clients[namespace].length)];
 }
 
 var rediff = new Rediff();
